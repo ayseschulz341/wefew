@@ -101,7 +101,8 @@ async function textWithin(page, needle, timeoutMs) {
 
 /** Кладёт первую легальную карту через UI; true — ход сделан. */
 async function playAnyCardUI(page) {
-  const slots = page.locator(".hand__slot .playing-card");
+  // Только интерактивные карты: уходящие с анимацией карты ещё в DOM, но неактивны.
+  const slots = page.locator(".hand__slot .playing-card.is-clickable");
   const count = await slots.count();
   const btn = page.getByRole("button", { name: /^Положить/ });
   for (let i = 0; i < count; i += 1) {
@@ -252,7 +253,15 @@ try {
     if (!gameover && !progressed) {
       let active = null;
       for (const player of players) {
-        if ((await bodyText(player.page)).includes("Ваш ход")) {
+        // Текст «Ваш ход» живёт ещё и в уходящей с анимацией строке статуса,
+        // поэтому ход определяем по реально доступным действиям.
+        const ready = await player.page.evaluate(
+          () =>
+            !document.querySelector(".overlay--reveal, .overlay--roulette") &&
+            (document.querySelector(".hand__slot .playing-card.is-clickable") !== null ||
+              document.querySelector(".hand__buttons .btn--danger:not(:disabled)") !== null),
+        );
+        if (ready) {
           active = player;
           break;
         }

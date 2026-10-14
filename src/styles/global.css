@@ -3163,8 +3163,7 @@ button {
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.44);
 }
 
-.online-reconnect--lost,
-.online-reconnect--error {
+.online-reconnect--lost {
   max-width: min(92vw, 560px);
   flex-wrap: wrap;
   justify-content: center;
@@ -3177,8 +3176,23 @@ button {
   font-size: 11px;
 }
 
-.online-reconnect--error {
-  border-color: rgba(179, 32, 42, 0.55);
+/* Короткое сообщение об отказе сервера во время партии. */
+.online-toast {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 65;
+  max-width: min(92vw, 560px);
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(179, 32, 42, 0.55);
+  border-radius: 9px;
+  background: rgba(17, 12, 15, 0.94);
+  color: var(--text);
+  font-size: 11px;
+  text-align: center;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.44);
+  pointer-events: none;
 }
 
 .online-reconnect__spinner {

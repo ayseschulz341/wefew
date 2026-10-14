@@ -460,7 +460,7 @@ function OnlineExperience({
           Восстанавливаем соединение с комнатой…
         </div>
       ) : room.error ? (
-        <div className="online-reconnect online-reconnect--error" role="alert">
+        <div className="online-toast" role="alert">
           {room.error}
         </div>
       ) : null}

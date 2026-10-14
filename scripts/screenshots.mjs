@@ -129,10 +129,13 @@ async function startGame(page, { waitForTable = true } = {}) {
 
 execSync("npm run build", { stdio: "inherit" });
 
+const isWindows = process.platform === "win32";
 const server = spawn(
   "npx",
   ["vite", "preview", "--host", "127.0.0.1", "--port", String(PORT), "--strictPort"],
-  { shell: true },
+  // Своя группа процессов: на Linux/macOS её можно остановить целиком
+  // (server.pid — это оболочка, а не сам vite).
+  { shell: true, detached: !isWindows },
 );
 
 try {
@@ -357,7 +360,10 @@ try {
   await browser.close();
 } finally {
   try {
-    execSync(`taskkill /pid ${server.pid} /T /F`);
+    // taskkill есть только в Windows: на других системах vite preview
+    // оставался работать, и скрипт не завершался.
+    if (isWindows) execSync(`taskkill /pid ${server.pid} /T /F`);
+    else process.kill(-server.pid, "SIGTERM");
   } catch {}
 }
 
