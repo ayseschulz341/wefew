@@ -17,15 +17,17 @@ import {
   stageOfTime,
   type RevolverScenario,
 } from "../game/revolverTimeline";
-import {
-  cartridgeCountForPull,
-  createCartridgeLayout,
-} from "../game/revolverVisual";
+import { createCartridgeLayout } from "../game/revolverVisual";
 import { RevolverStage } from "./RevolverStage";
 
 interface Props {
   open: boolean;
   paused?: boolean;
+  /**
+   * Онлайн: пауза только прячет сцену, а её часы идут дальше вместе с сервером.
+   * Иначе после паузы сцена начиналась заново и обрывалась до исхода.
+   */
+  keepRunningWhenPaused?: boolean;
   shooterName: string;
   fired: boolean;
   outcomePending?: boolean;
@@ -69,6 +71,7 @@ const BLOOD_DROPS = [
 export function RevolverModal({
   open,
   paused = false,
+  keepRunningWhenPaused = false,
   shooterName,
   fired,
   outcomePending = false,
@@ -92,6 +95,7 @@ export function RevolverModal({
   const [clock, setClock] = useState(0);
   const [lite, setLite] = useState(false);
   const reduceMotion = useReducedMotion();
+  const holdScene = paused && !keepRunningWhenPaused;
   const stage: RouletteStage =
     stageOverride ?? (scene.id === sceneId ? scene.stage : "load");
   // Сетка времени зависит от числа патронов (номера спуска).
@@ -135,7 +139,7 @@ export function RevolverModal({
       setClock(stageAnchor(stageOverride, T));
       return;
     }
-    if (!open || paused) {
+    if (!open || holdScene) {
       setScene({ id: "", stage: "load" });
       setClock(0);
       return;
@@ -205,14 +209,17 @@ export function RevolverModal({
       const dt = Math.max(0, now - last);
       last = now;
       // Клиффхэнгер: пока исход неизвестен, часы замирают за миг до удара.
-      const frozen = pendingRef.current && t >= T.hit - 40;
+      // Предел ставится на сам шаг: длинный кадр (возврат на вкладку, подвисание)
+      // иначе перескакивал удар и играл щелчок по заглушке fired: false.
+      const limit = pendingRef.current ? T.hit - 40 : T.end;
+      const frozen = t >= limit;
       if (!frozen) {
-        t = Math.min(T.end, t + dt);
+        t = Math.min(limit, t + dt);
         while (evIdx < events.length && events[evIdx].time <= t) {
           gun.play(events[evIdx].kind);
           evIdx += 1;
         }
-        if (t >= T.hit) playTerminal();
+        if (t >= T.hit && !pendingRef.current) playTerminal();
         const nextStage = stageOfTime(t, T);
         setScene((prev) =>
           prev.id === sceneId && prev.stage !== nextStage
@@ -226,13 +233,16 @@ export function RevolverModal({
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, paused, sceneId, stageOverride, reduceMotion, pullNumber, remainingChambers, T]);
+  }, [open, holdScene, sceneId, stageOverride, reduceMotion, pullNumber, remainingChambers, T]);
 
   const scenario = scenarioRef.current ?? (scenarioRef.current = buildScenario());
   const finalRotation = scenario.startAngle + scenario.spinTravel;
   const activeSlot = mod(Math.round(-finalRotation / NOTCH), CHAMBERS);
-  const cartridgeCount = cartridgeCountForPull(pullNumber);
-  const afterImpact = stage === "fire" || stage === "result";
+  // Последствия удара показываются только после самого удара и только когда
+  // исход известен: раньше вспышка опережала звук на 280 мс, а в онлайне до
+  // ответа сервера по заглушке fired: false успевало мелькнуть «ЩЁЛК».
+  const revealed = !outcomePending && (stageOverride !== undefined || clock >= T.hit);
+  const afterImpact = revealed && (stage === "fire" || stage === "result");
   // Раскладка честная: при осечке бойковое гнездо пусто, после выстрела в нём гильза.
   const layout = createCartridgeLayout({
     pullNumber,
@@ -251,10 +261,10 @@ export function RevolverModal({
       : Math.max(pose.bullets[slot] ?? 0, clock >= T.spinStart ? 1 : 0),
   );
 
-  const showFlash = fired && stage === "fire";
+  const showFlash = fired && afterImpact && stage === "fire";
   const showBlood = fired && afterImpact;
   // Слово «ЩЁЛК» держится до конца сцены — это финальная обратная связь осечки.
-  const showDryPulse = !fired && (stage === "fire" || stage === "result");
+  const showDryPulse = !fired && afterImpact;
   const showReticle = stage === "cock" || stage === "fire";
 
   const gunMotion = reduceMotion
@@ -332,7 +342,7 @@ export function RevolverModal({
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: "spring", stiffness: 400, damping: 18 }}
             >
-              Спуск №{pullNumber} · патронов в барабане — {cartridgeCount} из {CHAMBERS}
+              Спуск №{pullNumber} · {remainingChambers > 1 ? `шанс выстрела — 1 из ${remainingChambers}` : "выстрел неизбежен"}
             </motion.p>
 
             <div className="roulette__scene">
@@ -356,7 +366,7 @@ export function RevolverModal({
               </motion.div>
 
               <AnimatePresence>
-                {stage === "result" && (
+                {stage === "result" && !outcomePending && (
                   <motion.p key={fired ? "bang" : "click"} className={`roulette__result ${fired ? "is-fired" : "is-safe"}`} initial={{ opacity: 0, scale: 0.58, letterSpacing: "0.2em" }} animate={{ opacity: 1, scale: 1, letterSpacing: "0.1em" }} transition={{ type: "spring", stiffness: 320, damping: 17 }}>
                     {fired ? "ВЫСТРЕЛ." : "ЩЁЛК. ПУСТО."}
                     <span>{fired ? "Боевой патрон был в активном гнезде." : "Под ударником было пустое гнездо."}</span>

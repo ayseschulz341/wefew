@@ -34,6 +34,8 @@ export function RevealOverlay({
     challengerName.trim().toLowerCase() === "вы"
       ? "Вы вскрываете"
       : `${challengerName} вскрывает`;
+  const accusedPlay =
+    accusedName.trim().toLowerCase() === "вы" ? "вашу выкладку" : `выкладку ${accusedName}`;
 
   return (
     <AnimatePresence>
@@ -61,7 +63,7 @@ export function RevealOverlay({
               />
             )}
             <p className="reveal__head">
-              {challengerAction} выкладку {accusedName} · номинал раунда —{" "}
+              {challengerAction} {accusedPlay} · номинал раунда —{" "}
               <b>{rankName(tableRank).toLowerCase()}</b>
             </p>
             <div className="reveal__cards">

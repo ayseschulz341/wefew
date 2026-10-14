@@ -169,6 +169,20 @@ describe("голосовые реплики", () => {
     expect(FakeAudio.created[1].play).toHaveBeenCalledOnce();
   });
 
+  it("отложенная реплика ждёт конца звучащей, а не обрывает её", () => {
+    engine.playVoice("cupcake", "challenge");
+    const shout = FakeAudio.created[0];
+
+    engine.queueVoice("cupcake", "devilRevealed");
+    expect(shout.pause).not.toHaveBeenCalled();
+    expect(FakeAudio.created).toHaveLength(1);
+
+    shout.onended?.();
+    expect(FakeAudio.created).toHaveLength(2);
+    expect(FakeAudio.created[1].src).toContain("audio/scubby/devil.wav");
+    expect(FakeAudio.created[1].play).toHaveBeenCalledOnce();
+  });
+
   it("останавливает голос и блокирует новые реплики без звука", () => {
     engine.playVoice("scubby", "devilRevealed");
     const active = FakeAudio.created[0];

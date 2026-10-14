@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { motion } from "framer-motion";
 import type { Card } from "../game/types";
-import { RANK_SHORT } from "../game/types";
+import { RANK_LABELS, RANK_SHORT } from "../game/types";
 
 const SUIT_GLYPH: Record<string, string> = { Q: "♥", K: "♦", A: "♣", JKR: "★" };
 
@@ -251,7 +251,7 @@ export function PlayingCard({
 }: Props) {
   const interactive = !!onClick && !disabled;
   const label = card
-    ? `${card.rank === "JKR" ? "Джокер" : card.rank}${devil ? ", Дьявол" : ""}${
+    ? `${RANK_LABELS[card.rank]}${devil ? ", Дьявол" : ""}${
         selected ? ", выбрана" : ""
       }`
     : "Карта рубашкой вверх";
@@ -271,7 +271,9 @@ export function PlayingCard({
       onKeyDown={
         interactive
           ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
+              // Как у флажка — пробел. Enter остаётся горячей клавишей «положить»:
+              // раньше он снимал выбор с карты под фокусом и выкладывал остальные.
+              if (e.key === " ") {
                 e.preventDefault();
                 onClick?.();
               }

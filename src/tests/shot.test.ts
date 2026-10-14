@@ -281,3 +281,29 @@ describe("Вариант «Дьявол»", () => {
     expect(ok.currentSeat).toBe(1);
   });
 });
+
+describe("Журнал для игрока «Вы»", () => {
+  it("гибель и ошибочное обвинение — во втором лице", () => {
+    const s = makeGame();
+    setCylinder(s.players[0], [0]);
+    const st = runCall(s, 1, true); // выкладка честная — стреляет обвинитель «Вы»
+    const text = st.log.map((entry) => entry.text).join("\n");
+    expect(text).toContain("Вы вскрываете выкладку Foxy");
+    expect(text).toContain("Вы погибаете.");
+    expect(text).not.toContain("Вы погибает.");
+  });
+
+  it("вскрытие выкладки игрока — «вашу выкладку»", () => {
+    const s = makeGame();
+    s.tableRank = "Q";
+    const card = s.players[0].hand.shift()!;
+    card.rank = "K";
+    s.pile.push({ playerId: 0, cards: [card] });
+    s.currentSeat = 1;
+
+    const st = reducer(reducer(s, { type: "CHALLENGE", challenger: 1 }), { type: "ADVANCE" });
+    const text = st.log.map((entry) => entry.text).join("\n");
+    expect(text).toContain("Foxy вскрывает вашу выкладку");
+    expect(text).not.toContain("выкладку Вы");
+  });
+});

@@ -1255,6 +1255,11 @@ button {
   padding: 20px;
 }
 
+/* Меню паузы и правила — поверх вскрытия, рулетки и итогов, но под заглушкой поворота. */
+.overlay--menu {
+  z-index: 60;
+}
+
 .modal {
   background: linear-gradient(180deg, var(--panel2), var(--panel));
   border: 1px solid var(--gold-dim);
@@ -3156,6 +3161,24 @@ button {
   color: var(--text);
   font-size: 11px;
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.44);
+}
+
+.online-reconnect--lost,
+.online-reconnect--error {
+  max-width: min(92vw, 560px);
+  flex-wrap: wrap;
+  justify-content: center;
+  text-align: center;
+}
+
+.online-reconnect--lost .btn {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+.online-reconnect--error {
+  border-color: rgba(179, 32, 42, 0.55);
 }
 
 .online-reconnect__spinner {

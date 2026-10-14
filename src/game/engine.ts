@@ -26,6 +26,7 @@ import {
   shuffle,
 } from "./deck";
 import { CHARACTERS } from "./characters";
+import { isYou } from "./plural";
 
 let rng: () => number = Math.random;
 
@@ -81,8 +82,13 @@ function cardsWord(n: number): string {
 }
 
 function actorAction(player: PlayerState, thirdPerson: string, secondPerson: string): string {
-  const verb = player.name.trim().toLowerCase() === "вы" ? secondPerson : thirdPerson;
+  const verb = isYou(player.name) ? secondPerson : thirdPerson;
   return `${player.name} ${verb}`;
+}
+
+/** «выкладку Foxy» / «вашу выкладку». */
+function playOf(player: PlayerState): string {
+  return isYou(player.name) ? "вашу выкладку" : `выкладку ${player.name}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +312,11 @@ function sweepToDiscard(state: GameState): void {
 function startRoundLog(state: GameState): void {
   log(
     state,
-    `Раунд ${state.roundNumber}. ${tableName(state.tableRank)}. Начинает ${state.players[state.currentSeat].name}.`,
+    `Раунд ${state.roundNumber}. ${tableName(state.tableRank)}. ${
+      isYou(state.players[state.currentSeat].name)
+        ? "Начинаете вы"
+        : `Начинает ${state.players[state.currentSeat].name}`
+    }.`,
     "info",
   );
   if (state.devilActive) {
@@ -477,20 +487,22 @@ function resolveReveal(state: GameState): GameState {
   if (wasLie) {
     log(
       state,
-      `${actorAction(challengerPlayer, "вскрывает", "вскрываете")} выкладку ${accusedPlayer.name} (${shown}): ЛОЖЬ!`,
+      `${actorAction(challengerPlayer, "вскрывает", "вскрываете")} ${playOf(accusedPlayer)} (${shown}): ЛОЖЬ!`,
       "lie",
     );
   } else {
     log(
       state,
-      `${actorAction(challengerPlayer, "вскрывает", "вскрываете")} выкладку ${accusedPlayer.name} (${shown}): правда. Обвинение ошибочно.`,
+      `${actorAction(challengerPlayer, "вскрывает", "вскрываете")} ${playOf(accusedPlayer)} (${shown}): правда. Обвинение ошибочно.`,
       "truth",
     );
   }
   if (devil) {
     log(
       state,
-      `Это ДЬЯВОЛ. К стволу идут все, у кого остались карты, — кроме ${accusedPlayer.name}.`,
+      `Это ДЬЯВОЛ. К стволу идут все, у кого остались карты, — кроме ${
+        isYou(accusedPlayer.name) ? "вас" : accusedPlayer.name
+      }.`,
       "devil",
     );
   }
@@ -580,7 +592,11 @@ function resolveRoulette(state: GameState): GameState {
     victim.alive = false;
     state.discard.push(...victim.hand);
     victim.hand = [];
-    log(state, `Спуск №${pullNumber}... ВЫСТРЕЛ. ${victim.name} погибает.`, "death");
+    log(
+      state,
+      `Спуск №${pullNumber}... ВЫСТРЕЛ. ${actorAction(victim, "погибает", "погибаете")}.`,
+      "death",
+    );
   } else {
     victim.pullsSurvived += 1;
     const left = victim.chambers.length;

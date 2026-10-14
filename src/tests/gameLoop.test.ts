@@ -24,7 +24,7 @@ describe("автоматический ход по таймеру", () => {
     expect(chooseTimeoutCardIds(state, 0)).toEqual(["Q0"]);
   });
 
-  it("выбирает до трёх обычных карт", () => {
+  it("кладёт одну карту — минимальный ход, как и сетевой сервер", () => {
     const state = startGame({
       playerName: "Вы",
       playerCharacterId: "foxy",
@@ -34,8 +34,21 @@ describe("автоматический ход по таймеру", () => {
       firstSeat: 0,
     });
 
-    expect(chooseTimeoutCardIds(state, 0)).toEqual(
-      state.players[0].hand.slice(0, 3).map((card) => card.id),
-    );
+    expect(chooseTimeoutCardIds(state, 0)).toEqual([state.players[0].hand[0].id]);
+  });
+
+  it("ничего не кладёт, когда игрок обязан вскрывать", () => {
+    const state = startGame({
+      playerName: "Вы",
+      playerCharacterId: "foxy",
+      botCharacters: ["scubby"],
+      difficulty: "normal",
+      variant: "classic",
+      firstSeat: 0,
+    });
+    state.players[1].hand = [];
+    state.pile = [{ playerId: 1, cards: [{ id: "K5", rank: "K" }] }];
+
+    expect(chooseTimeoutCardIds(state, 0)).toEqual([]);
   });
 });

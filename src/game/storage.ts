@@ -3,6 +3,7 @@ import { ALL_CHARACTER_IDS } from "./characters";
 
 const SETTINGS_KEY = "liars-bar:settings:v1";
 const STATS_KEY = "liars-bar:stats:v1";
+const RECORDED_GAMES_KEY = "liars-bar:recorded-games:v1";
 
 export interface Settings {
   playerName: string;
@@ -58,13 +59,11 @@ export const EMPTY_STATS: Stats = {
 };
 
 function storage(): Storage | null {
+  // Без пробной записи: при переполненной квоте запись бросает, но чтение
+  // работает — раньше сохранённые настройки и статистика тогда терялись.
+  // Каждое обращение ниже всё равно защищено try/catch.
   try {
-    if (typeof localStorage === "undefined") return null;
-    // Проверка доступности: в приватном режиме запись может бросать.
-    const probe = "__lb_probe__";
-    localStorage.setItem(probe, "1");
-    localStorage.removeItem(probe);
-    return localStorage;
+    return typeof localStorage === "undefined" ? null : localStorage;
   } catch {
     return null;
   }
@@ -173,6 +172,26 @@ export function applyOutcome(stats: Stats, outcome: GameOutcome): Stats {
     streak,
     bestStreak: Math.max(stats.bestStreak, streak),
   };
+}
+
+/**
+ * Отмечает партию как учтённую. false — она уже засчитана (например, после
+ * перезагрузки страницы на экране итогов сетевой партии).
+ */
+export function claimGameRecord(gameKey: string): boolean {
+  const store = storage();
+  if (!store) return true;
+  try {
+    const parsed = JSON.parse(store.getItem(RECORDED_GAMES_KEY) ?? "[]") as unknown;
+    const recorded = Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === "string")
+      : [];
+    if (recorded.includes(gameKey)) return false;
+    store.setItem(RECORDED_GAMES_KEY, JSON.stringify([...recorded, gameKey].slice(-30)));
+  } catch {
+    // Без хранилища дубли не отследить — засчитываем.
+  }
+  return true;
 }
 
 export function resetStats(): Stats {

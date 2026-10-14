@@ -179,6 +179,8 @@ export class SoundEngine {
   private master: GainNode | null = null;
   private voiceCache = new Map<string, HTMLAudioElement>();
   private activeVoice: HTMLAudioElement | null = null;
+  /** Реплика, ждущая окончания текущей (см. queueVoice). */
+  private queuedVoice: { path: string; rate: number } | null = null;
   muted = false;
 
   private ensure(): AudioContext | null {
@@ -194,13 +196,15 @@ export class SoundEngine {
       this.master.gain.value = this.muted ? 0 : MASTER_VOLUME;
       this.master.connect(this.ctx.destination);
     }
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    // iOS переводит контекст ещё и в "interrupted" (звонок, сворачивание).
+    if (this.ctx.state !== "running") this.ctx.resume().catch(() => undefined);
     return this.ctx;
   }
 
   setMuted(muted: boolean): void {
     this.muted = muted;
     if (this.master) this.master.gain.value = muted ? 0 : MASTER_VOLUME;
+    if (muted) this.queuedVoice = null;
     if (muted && this.activeVoice) {
       this.activeVoice.pause();
       this.activeVoice.currentTime = 0;
@@ -225,6 +229,8 @@ export class SoundEngine {
   private playVoiceFile(path: string, playbackRate = 1): void {
     const audio = this.voice(path);
     if (!audio) return;
+    // Новая реплика вытесняет и звучащую, и отложенную.
+    this.queuedVoice = null;
 
     if (this.activeVoice && this.activeVoice !== audio) {
       this.activeVoice.pause();
@@ -238,12 +244,15 @@ export class SoundEngine {
       audio as HTMLAudioElement & { webkitPreservesPitch?: boolean }
     ).webkitPreservesPitch = playbackRate === 1;
     this.activeVoice = audio;
-    audio.onended = () => {
-      if (this.activeVoice === audio) this.activeVoice = null;
+    const finish = () => {
+      if (this.activeVoice !== audio) return;
+      this.activeVoice = null;
+      const next = this.queuedVoice;
+      this.queuedVoice = null;
+      if (next && !this.muted) this.playVoiceFile(next.path, next.rate);
     };
-    void audio.play().catch(() => {
-      if (this.activeVoice === audio) this.activeVoice = null;
-    });
+    audio.onended = finish;
+    void audio.play().catch(finish);
   }
 
   /** Озвучивает только публичное событие: заявление, обвинение или уже вскрытого Дьявола. */
@@ -258,6 +267,28 @@ export class SoundEngine {
     if (path) {
       this.playVoiceFile(path, characterId ? CHARACTER_VOICE_RATE[characterId] : 1);
     }
+  }
+
+  /**
+   * Как playVoice, но не обрывает звучащую реплику, а ждёт её конца. Нужна
+   * при вскрытии: реакция обвинённого раньше глушила «Лжец!» обвинителя
+   * в первые миллисекунды.
+   */
+  queueVoice(
+    characterId: CharacterId | null,
+    cue: VoiceCue,
+    options: VoiceOptions = {},
+  ): void {
+    if (this.muted) return;
+    const path = resolveVoicePath(characterId, cue, options);
+    if (!path) return;
+    const rate = (characterId ? CHARACTER_VOICE_RATE[characterId] : undefined) ?? 1;
+    const active = this.activeVoice;
+    if (active && !active.paused && !active.ended) {
+      this.queuedVoice = { path, rate };
+      return;
+    }
+    this.playVoiceFile(path, rate);
   }
 
   /**

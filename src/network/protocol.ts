@@ -29,7 +29,17 @@ export type ServerEvent =
       gameInProgress: boolean;
       settings: RoomSettings;
     }
-  | { type: "game_state"; state: GameState; turnEndsAt?: number | null }
+  | {
+      type: "game_state";
+      state: GameState;
+      turnEndsAt?: number | null;
+      /** Номер состояния партии: клиент возвращает его в действиях. */
+      turnId?: number;
+      /** Идентификатор партии: одна партия засчитывается в статистику один раз. */
+      gameId?: string | null;
+      /** Часы сервера в момент отправки: поправка на расхождение часов клиента. */
+      serverNow?: number;
+    }
   | { type: "action_ack"; actionId: string }
   | { type: "action_rejected"; reason: string; actionType?: string; actionId?: string }
   | { type: "player_kicked"; roomCode: string }
@@ -59,6 +69,8 @@ export type ClientMessage =
         | { type: "play_cards"; cardIds: string[] }
         | { type: "challenge" };
       actionId: string;
+      /** Для какого состояния партии принято решение; устаревшее отклоняется. */
+      turnId?: number;
     }
   | { type: "kick_player"; playerId: string; actionId: string }
   | { type: "request_sync" }

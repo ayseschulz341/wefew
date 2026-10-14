@@ -17,7 +17,7 @@ export function PauseModal({ onResume, onRules, onRestart, onExit, online = fals
   }, []);
 
   return (
-    <div className="overlay" onClick={onResume}>
+    <div className="overlay overlay--menu" onClick={onResume}>
       <motion.div
         className="modal modal--pause"
         role="dialog"

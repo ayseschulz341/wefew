@@ -39,11 +39,15 @@ export function personalState(
   showRouletteResult = false,
 ): GameState {
   const count = state.players.length;
+  const gameOver = state.phase.kind === "gameover";
   const players = Array.from({ length: count }, (_, displayedSeat) => {
     const originalSeat = (displayedSeat + viewer) % count;
     const player = state.players[originalSeat];
     return {
       ...player,
+      // Счётчик растёт в момент лживой выкладки — до конца партии он выдал бы
+      // блеф соперника раньше вскрытия.
+      bluffsMade: originalSeat === viewer || gameOver ? player.bluffsMade : 0,
       seat: displayedSeat,
       isHuman: displayedSeat === 0,
       hand:

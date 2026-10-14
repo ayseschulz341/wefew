@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { GameApi, GameSetup } from "../hooks/useGameLoop";
-import { cardIsDevil, rankName, tableName } from "../game/engine";
+import { cardIsDevil, tableName } from "../game/engine";
+import type { Rank } from "../game/types";
 import { VARIANT_LABELS } from "../game/types";
 import { CHAMBERS } from "../game/types";
+import { isYou, plural } from "../game/plural";
 import { sfx } from "../game/sounds";
 import { PlayerSeat } from "./PlayerSeat";
 import { PlayingCard, CardFace } from "./PlayingCard";
@@ -60,16 +62,19 @@ export function GameTable({
     onPause(menu !== null);
   }, [menu, onPause]);
 
+  // Зависимость от вида фазы, а не от объекта: в онлайне каждое сообщение
+  // сервера приносит новый объект, и мелодия финала играла заново.
+  const winnerSeat = phase.kind === "gameover" ? phase.winner : null;
   useEffect(() => {
     if (phase.kind === "gameover") {
-      sfx.play(phase.winner === 0 ? "win" : "lose");
+      sfx.play(winnerSeat === 0 ? "win" : "lose");
     }
-  }, [phase]);
+  }, [phase.kind, winnerSeat]);
 
-  // Esc открывает/закрывает паузу.
+  // Esc открывает/закрывает паузу (если его не забрали правила или снятие выбора карт).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || e.defaultPrevented) return;
       if (phase.kind === "gameover") return;
       setMenu((m) => (m === null ? "pause" : null));
     };
@@ -96,7 +101,9 @@ export function GameTable({
     if (phase.kind === "roulette") {
       const shooter = state.players[phase.shooter];
       const series = phase.total > 1 ? ` (${phase.index} из ${phase.total})` : "";
-      return `${shooter.name} смотрит в дуло…${series}`;
+      return isYou(shooter.name)
+        ? `Вы смотрите в дуло…${series}`
+        : `${shooter.name} смотрит в дуло…${series}`;
     }
     if (phase.kind === "gameover") return "Ночь закончена";
     if (!me.alive) return "Вы выбыли. Стол доигрывает без вас.";
@@ -112,6 +119,16 @@ export function GameTable({
 
   const reveal = phase.kind === "reveal" ? phase : null;
   const roulette = phase.kind === "roulette" ? phase : null;
+  const turnSeconds = setup.turnSeconds ?? 30;
+  const handHint = isMyTurn
+    ? null
+    : paused
+      ? "пауза"
+      : !me.alive
+        ? "вы выбыли"
+        : phase.kind === "idle"
+          ? "сейчас ход соперника"
+          : null;
 
   return (
     <div className="game">
@@ -264,8 +281,9 @@ export function GameTable({
               {lastEntry && (
                 <p className="center__last">
                   {state.players[lastEntry.playerId].name}: {lastEntry.cards.length}{" "}
-                  {lastEntry.cards.length === 1 ? "карта" : "карты"} ·{" "}
-                  заявлены <b>{rankName(tableRank).toLowerCase()}</b>
+                  {plural(lastEntry.cards.length, "карта", "карты", "карт")} ·{" "}
+                  {claimWords(tableRank, lastEntry.cards.length).verb}{" "}
+                  <b>{claimWords(tableRank, lastEntry.cards.length).noun}</b>
                 </p>
               )}
             </div>
@@ -324,6 +342,9 @@ export function GameTable({
         canChallenge={canChallenge}
         mustChallenge={mustChallenge}
         secondsLeft={secondsLeft}
+        turnSeconds={turnSeconds}
+        resetKey={`${state.roundNumber}:${state.pile.length}:${phase.kind}`}
+        waitingHint={handHint}
         onPlay={playCard}
         onChallenge={challenge}
       />
@@ -344,6 +365,7 @@ export function GameTable({
       <RevolverModal
         open={!!roulette}
         paused={paused}
+        keepRunningWhenPaused={online}
         shooterName={roulette ? state.players[roulette.shooter].name : ""}
         fired={roulette?.fired ?? false}
         outcomePending={roulette?.resultPending ?? false}
@@ -355,9 +377,7 @@ export function GameTable({
 
       {phase.kind === "gameover" && (
         <ResultScreen
-          winnerName={
-            phase.winner !== null ? state.players[phase.winner].name : null
-          }
+          winnerSeat={phase.winner}
           humanWon={phase.winner === 0}
           players={state.players}
           playerName={setup.playerName}
@@ -368,7 +388,11 @@ export function GameTable({
       )}
 
       {menu === "rules" && (
-        <RulesModal variant={setup.variant} onClose={() => setMenu(null)} />
+        <RulesModal
+          variant={setup.variant}
+          turnSeconds={setup.timerEnabled ? turnSeconds : null}
+          onClose={() => setMenu(null)}
+        />
       )}
       {menu === "pause" && (
         <PauseModal
@@ -384,6 +408,18 @@ export function GameTable({
       )}
     </div>
   );
+}
+
+const CLAIM_WORDS: Record<Rank, { one: [string, string]; many: [string, string] }> = {
+  Q: { one: ["заявлена", "дама"], many: ["заявлены", "дамы"] },
+  K: { one: ["заявлен", "король"], many: ["заявлены", "короли"] },
+  A: { one: ["заявлен", "туз"], many: ["заявлены", "тузы"] },
+};
+
+/** «заявлена дама» / «заявлены дамы» — согласование с числом карт. */
+function claimWords(rank: Rank, count: number): { verb: string; noun: string } {
+  const [verb, noun] = count === 1 ? CLAIM_WORDS[rank].one : CLAIM_WORDS[rank].many;
+  return { verb, noun };
 }
 
 function entryRotation(i: number): number {

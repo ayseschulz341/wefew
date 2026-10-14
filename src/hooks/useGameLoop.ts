@@ -13,7 +13,6 @@ import type {
   GameState,
   GameVariant,
 } from "../game/types";
-import { MAX_PLAY_CARDS } from "../game/types";
 import {
   canChallenge as canChallengeRule,
   getRng,
@@ -86,17 +85,12 @@ export interface GameApi {
 }
 
 /**
- * Выбирает гарантированно допустимую выкладку при истечении таймера.
- * В частности, активного Дьявола нельзя отправлять вместе с другими картами.
+ * Выкладка при истечении таймера — минимальный допустимый ход: одна карта,
+ * как и у сетевого сервера. Раньше локально выкладывались сразу три карты —
+ * крупная невольная заявка, почти всегда лживая.
  */
 export function chooseTimeoutCardIds(state: GameState, seat: number): string[] {
   const hand = state.players[seat]?.hand ?? [];
-  if (hand.length === 0) return [];
-
-  const take = Math.min(MAX_PLAY_CARDS, hand.length);
-  const preferred = hand.slice(0, take).map((card) => card.id);
-  if (isPlayAllowed(state, seat, preferred)) return preferred;
-
   const legalSingle = hand.find((card) => isPlayAllowed(state, seat, [card.id]));
   return legalSingle ? [legalSingle.id] : [];
 }
@@ -134,19 +128,34 @@ export function useGameLoop(setup: GameSetup, paused = false): GameApi {
   // --- Автопродвижение фаз с таймингами под анимации ----------------------
   useEffect(() => {
     if (paused) return;
-    if (state.phase.kind === "reveal") {
+    const phase = state.phase;
+    if (phase.kind === "reveal") {
       const t = setTimeout(() => dispatch({ type: "ADVANCE" }), REVEAL_MS);
       return () => clearTimeout(t);
     }
-    if (state.phase.kind === "roulette") {
+    if (phase.kind === "roulette") {
       // Длительность сцены зависит от числа патронов (номера спуска).
       const t = setTimeout(
         () => dispatch({ type: "ADVANCE" }),
-        rouletteTotalMs(state.phase.pullNumber),
+        rouletteTotalMs(phase.pullNumber),
       );
-      return () => clearTimeout(t);
+      // Реплика «выжил» звучит сразу после щелчка курка. Таймер живёт вместе
+      // со сценой: после паузы сцена начинается заново, и реплика не должна
+      // опережать щелчок.
+      const shooter = state.players[phase.shooter];
+      const line =
+        !phase.fired && !shooter.isHuman
+          ? setTimeout(
+              () => say(phase.shooter, botLine(shooter.characterId, "survived")),
+              rouletteHitOffsetMs(phase.pullNumber) + 600,
+            )
+          : undefined;
+      return () => {
+        clearTimeout(t);
+        if (line !== undefined) clearTimeout(line);
+      };
     }
-  }, [state.phase, paused]);
+  }, [state.phase, state.players, paused, say]);
 
   // Реплики по итогам вскрытия и выстрела.
   const lastPhaseKey = useRef("");
@@ -158,28 +167,15 @@ export function useGameLoop(setup: GameSetup, paused = false): GameApi {
       lastPhaseKey.current = key;
       const accused = state.players[phase.accused];
       sfx.play("flip");
+      // Реакция обвинённого ждёт конца «Лжец!» обвинителя, а не обрывает его.
       if (phase.devil) {
-        sfx.playVoice(accused.characterId, "devilRevealed");
+        sfx.queueVoice(accused.characterId, "devilRevealed");
       }
       if (phase.wasLie && !phase.devil) {
-        sfx.playVoice(accused.characterId, "caughtLying");
+        sfx.queueVoice(accused.characterId, "caughtLying");
       }
       if (phase.wasLie && !accused.isHuman) {
         say(phase.accused, botLine(accused.characterId, "caught"));
-      }
-      return;
-    }
-    if (phase.kind === "roulette" && !phase.fired) {
-      const key = `shot-${phase.shooter}-${phase.pullNumber}-${state.roundNumber}`;
-      if (lastPhaseKey.current === key) return;
-      lastPhaseKey.current = key;
-      const shooter = state.players[phase.shooter];
-      if (!shooter.isHuman) {
-        // Реплика «выжил» звучит сразу после щелчка курка.
-        setTimeout(
-          () => say(phase.shooter, botLine(shooter.characterId, "survived")),
-          rouletteHitOffsetMs(phase.pullNumber) + 600,
-        );
       }
     }
   }, [state.phase, state.players, state.roundNumber, say]);
@@ -223,20 +219,33 @@ export function useGameLoop(setup: GameSetup, paused = false): GameApi {
       ? `${state.roundNumber}-${state.currentSeat}-${state.pile.length}`
       : "";
 
+  const turnSeconds = Math.max(5, Math.floor(setup.turnSeconds ?? 30));
+  // Остаток времени хода переживает паузу: раньше пауза заново выдавала полные
+  // 30 секунд.
+  const turnBudget = useRef({ key: "", msLeft: 0 });
+
   useEffect(() => {
     if (!setup.timerEnabled || paused || !isMyTurn) {
       setSecondsLeft(null);
       return;
     }
-    const turnSeconds = Math.max(5, Math.floor(setup.turnSeconds ?? 30));
-    setSecondsLeft(turnSeconds);
+    if (turnBudget.current.key !== turnKey) {
+      turnBudget.current = { key: turnKey, msLeft: turnSeconds * 1000 };
+    }
+    const budget = turnBudget.current;
+    const startMs = budget.msLeft;
     const started = Date.now();
-    const iv = setInterval(() => {
-      const left = turnSeconds - Math.floor((Date.now() - started) / 1000);
-      setSecondsLeft(left > 0 ? left : 0);
-    }, 250);
-    return () => clearInterval(iv);
-  }, [turnKey, isMyTurn, paused, setup.timerEnabled, setup.turnSeconds]);
+    const tick = () => {
+      budget.msLeft = Math.max(0, startMs - (Date.now() - started));
+      setSecondsLeft(Math.ceil(budget.msLeft / 1000));
+    };
+    tick();
+    const iv = setInterval(tick, 250);
+    return () => {
+      clearInterval(iv);
+      budget.msLeft = Math.max(0, startMs - (Date.now() - started));
+    };
+  }, [turnKey, isMyTurn, paused, setup.timerEnabled, turnSeconds]);
 
   // Истечение времени: обязан вскрывать — вскрываем, иначе кладём случайное.
   useEffect(() => {

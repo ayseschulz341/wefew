@@ -76,7 +76,7 @@ function lobby(room: Room) {
     roomCode: room.code,
     players: [...room.players.values()],
     ownerId: room.ownerId,
-    gameInProgress: Boolean(room.game),
+    gameInProgress: room.isPlaying(),
     settings: room.settings,
   };
 }
@@ -87,12 +87,15 @@ function broadcast(room: Room): void {
     send(socket, lobby(room));
     const player = room.sessionPlayer(meta.sessionId);
     if (!player || !room.game) continue;
-    const seat = [...room.players.keys()].indexOf(player.id);
+    const seat = room.seatOf(player.id);
     if (seat >= 0) {
       send(socket, {
         type: "game_state",
         state: personalState(room.game, seat, room.isRouletteResultVisible()),
         turnEndsAt: room.turnEndsAt,
+        turnId: room.turnId,
+        gameId: room.gameId,
+        serverNow: Date.now(),
       });
     }
   }
@@ -143,8 +146,39 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   });
 }
 
-async function serveStatic(pathname: string, res: ServerResponse): Promise<void> {
-  const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+function cacheControl(file: string): string {
+  // Файлы из assets/ содержат хеш в имени и никогда не меняются.
+  if (file.startsWith(`${DIST}${sep}assets${sep}`)) return "public, max-age=31536000, immutable";
+  return extname(file) === ".html" ? "no-cache" : "public, max-age=3600";
+}
+
+/** Разбирает простой заголовок Range: bytes=start-end (один диапазон). */
+function parseRange(header: string | undefined, size: number): { start: number; end: number } | null | "invalid" {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (match[1] === "" && match[2] === "")) return "invalid";
+  let start: number;
+  let end: number;
+  if (match[1] === "") {
+    const suffix = Number(match[2]);
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1);
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) return "invalid";
+  return { start, end };
+}
+
+async function serveStatic(pathname: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let requested: string;
+  try {
+    requested = pathname === "/" ? "index.html" : decodeURIComponent(pathname).replace(/^\/+/, "");
+  } catch {
+    json(res, 400, { error: "Bad path" });
+    return;
+  }
   const file = resolve(DIST, requested);
   if (file !== DIST && !file.startsWith(`${DIST}${sep}`)) {
     json(res, 403, { error: "Forbidden" });
@@ -152,12 +186,38 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
   }
   try {
     const data = await readFile(file);
-    res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+    const headers = {
+      "content-type": MIME[extname(file)] ?? "application/octet-stream",
+      "cache-control": cacheControl(file),
+      "accept-ranges": "bytes",
+    };
+    const range = parseRange(req.headers.range, data.length);
+    if (range === "invalid") {
+      res.writeHead(416, { ...headers, "content-range": `bytes */${data.length}` });
+      res.end();
+      return;
+    }
+    if (range) {
+      res.writeHead(206, {
+        ...headers,
+        "content-range": `bytes ${range.start}-${range.end}/${data.length}`,
+        "content-length": range.end - range.start + 1,
+      });
+      res.end(data.subarray(range.start, range.end + 1));
+      return;
+    }
+    res.writeHead(200, headers);
     res.end(data);
   } catch {
+    // Отсутствующий файл (например, вырезанная озвучка) должен давать 404:
+    // HTML вместо звука ломал декодирование и прятал ошибку.
+    if (extname(requested)) {
+      json(res, 404, { error: "Not found" });
+      return;
+    }
     try {
       const html = await readFile(join(DIST, "index.html"));
-      res.writeHead(200, { "content-type": MIME[".html"] });
+      res.writeHead(200, { "content-type": MIME[".html"], "cache-control": "no-cache" });
       res.end(html);
     } catch {
       json(res, 404, { error: "Build not found" });
@@ -199,13 +259,16 @@ const server = createServer(async (req, res) => {
       json(res, 404, { error: "Room or session not found" });
       return;
     }
-    const seat = [...room.players.keys()].indexOf(player.id);
+    const seat = room.seatOf(player.id);
     json(res, 200, {
       lobby: lobby(room),
       game: room.game && seat >= 0
         ? personalState(room.game, seat, room.isRouletteResultVisible())
         : null,
       turnEndsAt: room.turnEndsAt,
+      turnId: room.turnId,
+      gameId: room.gameId,
+      serverNow: Date.now(),
     });
     return;
   }
@@ -214,7 +277,7 @@ const server = createServer(async (req, res) => {
     json(res, 404, { error: "Not found" });
     return;
   }
-  await serveStatic(url.pathname, res);
+  await serveStatic(url.pathname, req, res);
 });
 
 const wss = new WebSocketServer({
@@ -363,11 +426,12 @@ function handle(socket: AliveWebSocket, raw: string): void {
           (!Array.isArray(message.action.cardIds) ||
             message.action.cardIds.length < 1 ||
             message.action.cardIds.length > 3 ||
-            !message.action.cardIds.every((id) => typeof id === "string")))
+            !message.action.cardIds.every((id) => typeof id === "string"))) ||
+        (message.turnId !== undefined && !Number.isInteger(message.turnId))
       ) {
         throw new Error("Некорректное игровое действие");
       }
-      room.action(player.id, message.action);
+      room.action(player.id, message.action, message.turnId);
     } else if (message.type === "kick_player") {
       if (typeof message.playerId !== "string") throw new Error("Некорректный игрок");
       const kickedSockets = [...clients.entries()].filter(
@@ -426,7 +490,7 @@ setInterval(() => {
       broadcast(room);
     }
   }
-}, 500).unref();
+}, 100).unref();
 
 setInterval(() => {
   for (const [code, room] of rooms) if (room.isStale()) rooms.delete(code);

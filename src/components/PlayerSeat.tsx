@@ -3,6 +3,7 @@ import type { PlayerState, CharacterId } from "../game/types";
 import { CHAMBERS, HAND_SIZE } from "../game/types";
 import { CHARACTER_BY_ID } from "../game/characters";
 import { Avatar } from "./Avatar";
+import { plural } from "../game/plural";
 
 interface Props {
   player: PlayerState;
@@ -109,7 +110,7 @@ export function PlayerSeat({
 
           <div className="seat__cards" title={`Карт на руках: ${player.hand.length}`}>
             <span className="seat__cardcount" aria-hidden="true">
-              {player.hand.length} карт
+              {player.hand.length} {plural(player.hand.length, "карта", "карты", "карт")}
             </span>
             {Array.from({ length: Math.min(player.hand.length, HAND_SIZE) }).map(
               (_, i) => (

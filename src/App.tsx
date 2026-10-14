@@ -4,6 +4,7 @@ import { useGameLoop, type GameSetup } from "./hooks/useGameLoop";
 import { sfx } from "./game/sounds";
 import {
   applyOutcome,
+  claimGameRecord,
   loadSettings,
   loadStats,
   resetStats as clearStats,
@@ -178,11 +179,25 @@ export default function App() {
     setScreen("menu");
   };
 
-  const recordOutcome = useCallback((state: GameState) => {
-    if (state.phase.kind !== "gameover") return;
+  const statsRef = useRef(stats);
+  statsRef.current = stats;
+
+  /**
+   * Засчитывает итог для игрока на месте 0: при конце партии или сразу при его
+   * гибели — проигрыш уже окончателен, и выход в меню после смерти больше не
+   * спасает статистику.
+   */
+  const recordOutcome = useCallback((state: GameState, gameKey?: string) => {
     const me = state.players[0];
-    const next = applyOutcome(loadStats(), {
-      won: state.phase.winner === 0,
+    const over = state.phase.kind === "gameover";
+    if (!me || (!over && me.alive)) return;
+    if (gameKey && !claimGameRecord(gameKey)) return;
+    // Берём более свежую из сохранённой (могла обновиться в другой вкладке)
+    // и текущей в памяти (если хранилище недоступно).
+    const persisted = loadStats();
+    const base = persisted.games >= statsRef.current.games ? persisted : statsRef.current;
+    const next = applyOutcome(base, {
+      won: state.phase.kind === "gameover" && state.phase.winner === 0,
       bluffsMade: me.bluffsMade,
       bluffsCaught: me.bluffsCaught,
       correctCalls: me.correctCalls,
@@ -196,6 +211,9 @@ export default function App() {
   const toggleMute = () => {
     sfx.unlock();
     const muted = !settings.muted;
+    // Сразу, а не через эффект: иначе щелчок при включении звука глушился
+    // ещё не снятым mute.
+    sfx.setMuted(muted);
     setSettings((s) => ({ ...s, muted }));
     if (!muted) sfx.play("uiClick");
   };
@@ -258,7 +276,7 @@ export default function App() {
     return (
       <div className="app app--visual-qa">
         <ResultScreen
-          winnerName="Cupcake"
+          winnerSeat={1}
           humanWon={false}
           players={QA_RESULT_PLAYERS}
           playerName="Вы"
@@ -326,6 +344,7 @@ export default function App() {
       {showRules && (
         <RulesModal
           variant={settings.variant}
+          turnSeconds={settings.timerEnabled ? settings.turnSeconds : null}
           onClose={() => setShowRules(false)}
         />
       )}
@@ -339,7 +358,7 @@ interface OnlineExperienceProps {
   muted: boolean;
   onToggleMute: () => void;
   onExit: () => void;
-  onGameEnd: (state: GameState) => void;
+  onGameEnd: (state: GameState, gameKey?: string) => void;
 }
 
 function OnlineExperience({
@@ -359,14 +378,31 @@ function OnlineExperience({
     wantsHost: intent.wantsHost,
     paused: paused || portrait,
   });
-  const recorded = useRef(false);
+  const recordedGame = useRef<string | null>(null);
+  const gameState = room.game?.state;
 
   useEffect(() => {
-    if (room.game?.state.phase.kind === "gameover" && !recorded.current) {
-      recorded.current = true;
-      onGameEnd(room.game.state);
+    if (!gameState) return;
+    const finished = gameState.phase.kind === "gameover" || !gameState.players[0]?.alive;
+    if (!finished) {
+      // Идёт новая партия (реванш) — её итог ещё не засчитан.
+      recordedGame.current = null;
+      return;
     }
-  }, [onGameEnd, room.game?.state]);
+    const key = `${intent.roomCode}:${room.gameId ?? "?"}`;
+    if (recordedGame.current === key) return;
+    recordedGame.current = key;
+    // По gameId партия не засчитается повторно и после перезагрузки страницы.
+    onGameEnd(gameState, room.gameId ? key : undefined);
+  }, [gameState, intent.roomCode, onGameEnd, room.gameId]);
+
+  // Ошибки во время партии (например, неудачный реванш) показываем недолго.
+  const { error: roomError, connectionStatus, dismissError } = room;
+  useEffect(() => {
+    if (!roomError || connectionStatus !== "connected") return;
+    const timer = window.setTimeout(dismissError, 5000);
+    return () => window.clearTimeout(timer);
+  }, [roomError, connectionStatus, dismissError]);
 
   const leave = () => {
     room.leaveRoom();
@@ -406,13 +442,29 @@ function OnlineExperience({
         paused={paused || portrait}
         onPause={setPaused}
       />
-      {room.connectionStatus !== "connected" && (
+      {room.connectionStatus === "disconnected" ? (
+        // Переподключение остановлено (комната закрыта, сессия открыта в
+        // другой вкладке): вечный «Восстанавливаем…» только вводил в заблуждение.
+        <div className="online-reconnect online-reconnect--lost" role="alert">
+          <span>{room.error ?? "Соединение с комнатой потеряно"}</span>
+          <button type="button" className="btn" onClick={room.retry}>
+            Подключиться снова
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={leave}>
+            В меню
+          </button>
+        </div>
+      ) : room.connectionStatus !== "connected" ? (
         <div className="online-reconnect" role="status">
           <span className="online-reconnect__spinner" aria-hidden="true" />
           Восстанавливаем соединение с комнатой…
         </div>
-      )}
-      <AnimatePresence>{portrait && <OrientationGate resumed />}</AnimatePresence>
+      ) : room.error ? (
+        <div className="online-reconnect online-reconnect--error" role="alert">
+          {room.error}
+        </div>
+      ) : null}
+      <AnimatePresence>{portrait && <OrientationGate resumed online />}</AnimatePresence>
     </>
   );
 }
@@ -493,7 +545,8 @@ function Game({
   const recorded = useRef(false);
 
   useEffect(() => {
-    if (api.state.phase.kind === "gameover" && !recorded.current) {
+    const finished = api.state.phase.kind === "gameover" || !api.state.players[0].alive;
+    if (finished && !recorded.current) {
       recorded.current = true;
       onGameEnd(api.state);
     }

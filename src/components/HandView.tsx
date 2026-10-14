@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import type { Card, Rank } from "../game/types";
 import { MAX_PLAY_CARDS, RANK_LABELS } from "../game/types";
+import { plural } from "../game/plural";
 import { PlayingCard } from "./PlayingCard";
 
 interface Props {
@@ -13,6 +14,15 @@ interface Props {
   canChallenge: boolean;
   mustChallenge: boolean;
   secondsLeft: number | null;
+  /** Полное время хода — масштаб полосы таймера. */
+  turnSeconds: number;
+  /**
+   * Меняется с каждым ходом, вскрытием и пересдачей. Выбор карт привязан к нему:
+   * id карт постоянны между раундами, и старый выбор «оживал» в новой руке.
+   */
+  resetKey: string;
+  /** Пояснение, почему сейчас нельзя ходить (ход соперника, пауза…). */
+  waitingHint?: string | null;
   onPlay: (cardIds: string[]) => void;
   onChallenge: () => void;
 }
@@ -32,10 +42,25 @@ export function HandView({
   canChallenge,
   mustChallenge,
   secondsLeft,
+  turnSeconds,
+  resetKey,
+  waitingHint = null,
   onPlay,
   onChallenge,
 }: Props) {
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selection, setSelection] = useState<{ key: string; ids: string[] }>({
+    key: resetKey,
+    ids: [],
+  });
+  const selected = selection.key === resetKey ? selection.ids : [];
+  const setSelected = (update: string[] | ((prev: string[]) => string[])) =>
+    setSelection((prev) => {
+      const current = prev.key === resetKey ? prev.ids : [];
+      return {
+        key: resetKey,
+        ids: typeof update === "function" ? update(current) : update,
+      };
+    });
   const [warn, setWarn] = useState<string | null>(null);
   const reduceMotion = useReducedMotion();
 
@@ -100,6 +125,8 @@ export function HandView({
         return;
       }
       if (e.key === "Enter") {
+        // Enter на кнопке нажимает саму кнопку («Обвинить» и т. п.).
+        if (target?.closest("button, a")) return;
         if (canAct && !mustChallenge && picked.length > 0) {
           e.preventDefault();
           play();
@@ -118,8 +145,9 @@ export function HandView({
         setSelected([]);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Фаза перехвата: Esc сначала снимает выбор карт и не открывает паузу.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   });
 
   const label = RANK_LABELS[tableRank] ?? tableRank;
@@ -194,7 +222,7 @@ export function HandView({
             <>
               Номинал раунда: <b>{label}</b> · джокер подходит к любому номиналу · за ход от 1
               до {MAX_PLAY_CARDS} карт
-              {!canAct && <span> · сейчас ход соперника</span>}
+              {waitingHint && <span> · {waitingHint}</span>}
             </>
           )}
         </p>
@@ -223,10 +251,14 @@ export function HandView({
           <div
             className={`hand__timer ${timerHot ? "is-hot" : ""}`}
             role="timer"
-            aria-label={`Осталось ${secondsLeft} секунд`}
+            aria-label={`Осталось ${secondsLeft} ${plural(secondsLeft, "секунда", "секунды", "секунд")}`}
           >
             <div className="hand__timer-bar">
-              <i style={{ width: `${(secondsLeft / 30) * 100}%` }} />
+              <i
+                style={{
+                  width: `${Math.min(100, (secondsLeft / Math.max(1, turnSeconds)) * 100)}%`,
+                }}
+              />
             </div>
             <span>{secondsLeft} с</span>
           </div>

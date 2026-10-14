@@ -167,14 +167,10 @@ export function suspicionOfTop(
   if (topCount === 0) return 0;
 
   // Доказанная ложь: столько диких карт вне моей руки не существует.
+  // Перебор вместе с нижними заявками доказательством не является: соврать мог
+  // и кто-то раньше, а вскрывается только верхняя выкладка. Этот случай
+  // учитывается ниже как сильное подозрение, а не как уверенность.
   if (topCount > k.wildsElsewhere) return 1;
-
-  // Доказанная ложь с учётом нижних заявок: после вычитания карт, заявленных
-  // остальными, на верхнюю выкладку диких карт уже не хватает.
-  const wildsForTop = k.wildsElsewhere - k.othersClaimedBelowTop;
-  if (topCount > wildsForTop && k.othersClaimedBelowTop <= k.wildsElsewhere) {
-    return 1;
-  }
 
   const feasible = pAtLeastWilds(
     topCount,

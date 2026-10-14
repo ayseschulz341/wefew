@@ -14,6 +14,7 @@ import {
   loadRoomSession,
   saveRoomSession,
 } from "../network/session";
+import { CHARACTER_BY_ID } from "../game/characters";
 
 export type OnlineConnectionStatus =
   | "connecting"
@@ -37,9 +38,12 @@ export interface OnlineRoomApi {
   myPlayerId: string | null;
   isHost: boolean;
   gameInProgress: boolean;
+  /** Идентификатор текущей партии от сервера. */
+  gameId: string | null;
   game: GameApi | null;
   error: string | null;
   updateSettings: (settings: RoomSettings) => void;
+  dismissError: () => void;
   startGame: () => void;
   kickPlayer: (playerId: string) => void;
   leaveRoom: () => void;
@@ -89,6 +93,16 @@ export async function createOnlineRoom(settings: RoomSettings): Promise<string> 
   return payload.roomCode;
 }
 
+/**
+ * Имя за сетевым столом. Локальное «Вы» у всех одинаковое: соперники видели бы
+ * друг друга как «Вы», а журнал писал бы о чужих ходах во втором лице.
+ */
+export function onlinePlayerName(playerName: string, characterId: CharacterId): string {
+  const name = playerName.trim();
+  if (name && name.toLowerCase() !== "вы") return name;
+  return CHARACTER_BY_ID.get(characterId)?.name ?? "Игрок";
+}
+
 function createActionId(): string {
   return typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
@@ -106,6 +120,7 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
   const [gameInProgress, setGameInProgress] = useState(false);
   const [state, setState] = useState<GameState | null>(null);
   const [turnEndsAt, setTurnEndsAt] = useState<number | null>(null);
+  const [gameId, setGameId] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -116,6 +131,11 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
   const pendingActionsRef = useRef(new Map<string, ClientMessage>());
   const previousStateRef = useRef<GameState | null>(null);
   const myPlayerIdRef = useRef<string | null>(null);
+  /** Номер состояния партии с сервера и ход, на который действие уже отправлено. */
+  const turnIdRef = useRef<number | undefined>(undefined);
+  const sentTurnRef = useRef<number | null>(null);
+  /** Часы сервера минус часы клиента: таймер не зависит от неточных часов телефона. */
+  const clockOffsetRef = useRef(0);
 
   const send = useCallback((message: ClientMessage, queue = true) => {
     if (queue && message.type === "player_action") {
@@ -149,7 +169,7 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
         const identify: ClientMessage = {
           type: "identify",
           roomCode,
-          playerName: playerName.trim() || "Игрок",
+          playerName: onlinePlayerName(playerName, characterId),
           characterId,
           playerId: stored?.playerId,
           sessionId: stored?.sessionId,
@@ -190,6 +210,11 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
           return;
         }
         if (message.type === "game_state") {
+          if (typeof message.serverNow === "number") {
+            clockOffsetRef.current = message.serverNow - Date.now();
+          }
+          turnIdRef.current = message.turnId;
+          setGameId(message.gameId ?? null);
           setState(message.state);
           setGameInProgress(true);
           setTurnEndsAt(message.turnEndsAt ?? null);
@@ -202,6 +227,7 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
         if (message.type === "action_rejected" || message.type === "error") {
           if (message.type === "action_rejected" && message.actionId) {
             pendingActionsRef.current.delete(message.actionId);
+            sentTurnRef.current = null;
           }
           setError(message.type === "error" ? message.message : message.reason);
           if (message.type === "error" && message.fatal) {
@@ -230,8 +256,16 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
         }
       });
 
-      socket.addEventListener("close", () => {
+      socket.addEventListener("close", (event) => {
         if (disposed || intentionalLeaveRef.current) return;
+        if (event.code === 4001) {
+          // Эту же сессию открыли в другой вкладке. Автопереподключение отняло
+          // бы место обратно, и вкладки бесконечно перехватывали бы его.
+          intentionalLeaveRef.current = true;
+          setError("Комната открыта в другой вкладке или на другом устройстве");
+          setConnectionStatus("disconnected");
+          return;
+        }
         retryCountRef.current += 1;
         setConnectionStatus("reconnecting");
         const delay = Math.min(RECONNECT_MAX_MS, 1000 * 2 ** (retryCountRef.current - 1));
@@ -257,22 +291,35 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
       setSecondsLeft(null);
       return;
     }
-    const update = () => setSecondsLeft(Math.max(0, Math.ceil((turnEndsAt - Date.now()) / 1000)));
+    const update = () =>
+      setSecondsLeft(
+        Math.max(0, Math.ceil((turnEndsAt - (Date.now() + clockOffsetRef.current)) / 1000)),
+      );
     update();
     const timer = window.setInterval(update, 250);
     return () => window.clearInterval(timer);
   }, [state, turnEndsAt]);
 
+  // Звуки и голоса по переходам серверного состояния — одинаково для своих
+  // и чужих ходов, как в локальной партии.
   useEffect(() => {
     if (!state) return;
     const previous = previousStateRef.current;
     if (state.phase.kind === "reveal" && previous?.phase.kind !== "reveal") {
-      const accused = state.players[state.phase.accused];
+      const { accused, challenger, devil, wasLie } = state.phase;
+      sfx.play("heartbeat");
       sfx.play("flip");
-      if (state.phase.devil) sfx.playVoice(accused.characterId, "devilRevealed");
-      else if (state.phase.wasLie) sfx.playVoice(accused.characterId, "caughtLying");
+      sfx.playVoice(state.players[challenger]?.characterId ?? null, "challenge");
+      const accusedId = state.players[accused]?.characterId ?? null;
+      if (devil) sfx.queueVoice(accusedId, "devilRevealed");
+      else if (wasLie) sfx.queueVoice(accusedId, "caughtLying");
     } else if (previous && state.pile.length > previous.pile.length) {
+      const top = state.pile[state.pile.length - 1];
       sfx.play("card");
+      sfx.playVoice(state.players[top.playerId]?.characterId ?? null, "play", {
+        count: top.cards.length,
+        rank: state.tableRank,
+      });
     }
     previousStateRef.current = state;
   }, [state]);
@@ -283,24 +330,39 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
   const canCall = Boolean(state && isMyTurn && canChallenge(state, 0));
   const mustCall = Boolean(state && mustChallenge(state, 0));
 
+  const dismissError = useCallback(() => setError(null), []);
+
+  /** Одно действие на ход: повторный клик до ответа сервера давал ошибку отказа. */
+  const claimTurn = useCallback((): boolean => {
+    const turnId = turnIdRef.current;
+    if (turnId === undefined) return true;
+    if (sentTurnRef.current === turnId) return false;
+    sentTurnRef.current = turnId;
+    return true;
+  }, []);
+
   const playCard = useCallback(
     (cardIds: string[]) => {
-      if (!state || paused || !isPlayAllowed(state, 0, cardIds)) return;
-      sfx.play("card");
+      if (!state || paused || !isPlayAllowed(state, 0, cardIds) || !claimTurn()) return;
       send({
         type: "player_action",
         action: { type: "play_cards", cardIds },
         actionId: createActionId(),
+        turnId: turnIdRef.current,
       });
     },
-    [paused, send, state],
+    [claimTurn, paused, send, state],
   );
 
   const challenge = useCallback(() => {
-    if (!canCall || !state) return;
-    sfx.play("heartbeat");
-    send({ type: "player_action", action: { type: "challenge" }, actionId: createActionId() });
-  }, [canCall, send, state]);
+    if (!canCall || !state || !claimTurn()) return;
+    send({
+      type: "player_action",
+      action: { type: "challenge" },
+      actionId: createActionId(),
+      turnId: turnIdRef.current,
+    });
+  }, [canCall, claimTurn, send, state]);
 
   const game = useMemo<GameApi | null>(() => {
     if (!state) return null;
@@ -325,9 +387,11 @@ export function useOnlineRoom(options: OnlineRoomOptions): OnlineRoomApi {
     myPlayerId,
     isHost,
     gameInProgress,
+    gameId,
     game,
     error,
     updateSettings: (next) => send({ type: "update_settings", ...next, actionId: createActionId() }, false),
+    dismissError,
     startGame: () => send({ type: "start_game", actionId: createActionId() }, false),
     kickPlayer: (playerId) => send({ type: "kick_player", playerId, actionId: createActionId() }, false),
     leaveRoom: () => {

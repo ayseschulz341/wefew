@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, loadSettings } from "../game/storage";
+import {
+  DEFAULT_SETTINGS,
+  claimGameRecord,
+  loadSettings,
+  loadStats,
+} from "../game/storage";
 
 class MemoryStorage implements Storage {
   private data = new Map<string, string>();
@@ -53,5 +58,30 @@ describe("настройки", () => {
       difficulty: "normal",
       botCount: 3,
     });
+  });
+});
+
+describe("статистика", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("читает сохранённое, даже когда запись запрещена (переполнена квота)", () => {
+    const storage = new MemoryStorage();
+    storage.setItem("liars-bar:stats:v1", JSON.stringify({ games: 7, wins: 3 }));
+    storage.setItem = () => {
+      throw new DOMException("quota", "QuotaExceededError");
+    };
+    vi.stubGlobal("localStorage", storage);
+
+    expect(loadStats()).toMatchObject({ games: 7, wins: 3 });
+  });
+
+  it("засчитывает одну и ту же сетевую партию только один раз", () => {
+    vi.stubGlobal("localStorage", new MemoryStorage());
+
+    expect(claimGameRecord("ROOM42:game-1")).toBe(true);
+    expect(claimGameRecord("ROOM42:game-1")).toBe(false);
+    expect(claimGameRecord("ROOM42:game-2")).toBe(true);
   });
 });

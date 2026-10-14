@@ -5,6 +5,34 @@ import type { OnlineRoomApi } from "../hooks/useOnlineRoom";
 import type { GameVariant } from "../game/types";
 import { VARIANT_LABELS } from "../game/types";
 import { Avatar } from "./Avatar";
+import { plural } from "../game/plural";
+
+/** Копирование с запасным путём: на http без TLS navigator.clipboard отсутствует. */
+async function copyText(value: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // Пробуем старый способ ниже.
+  }
+  const area = document.createElement("textarea");
+  area.value = value;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+  area.remove();
+  return copied;
+}
 
 interface Props {
   room: OnlineRoomApi;
@@ -32,22 +60,27 @@ export function OnlineLobbyScreen({ room, inviteUrl, onExit }: Props) {
   }, [inviteUrl]);
 
   const copy = async (value: string, kind: "code" | "link") => {
-    await navigator.clipboard.writeText(value);
+    if (!(await copyText(value))) return;
     setCopied(kind);
     window.setTimeout(() => setCopied(null), 1800);
   };
 
   const share = async () => {
     if (navigator.share) {
-      await navigator.share({
-        title: "Бар лжецов — приглашение",
-        text: `Заходи за мой стол. Код комнаты: ${room.roomCode}`,
-        url: inviteUrl,
-      });
+      try {
+        await navigator.share({
+          title: "Бар лжецов — приглашение",
+          text: `Заходи за мой стол. Код комнаты: ${room.roomCode}`,
+          url: inviteUrl,
+        });
+      } catch {
+        // Пользователь закрыл системное окно «Поделиться» — это не ошибка.
+      }
       return;
     }
     await copy(inviteUrl, "link");
   };
+  const freeSeats = Math.max(0, 4 - room.players.length);
 
   const updateVariant = (variant: GameVariant) =>
     room.updateSettings({ ...room.settings, variant });
@@ -104,7 +137,12 @@ export function OnlineLobbyScreen({ room, inviteUrl, onExit }: Props) {
             <div className="invite-panel__copy">
               <span className="online-lobby__eyebrow">Пригласите друзей</span>
               <h2 id="invite-title">Ссылка, QR или код</h2>
-              <p>Каждый способ ведёт в эту комнату. Свободно ещё {Math.max(0, 4 - room.players.length)} места.</p>
+              <p>
+                Каждый способ ведёт в эту комнату.{" "}
+                {freeSeats > 0
+                  ? `Свободно ещё ${freeSeats} ${plural(freeSeats, "место", "места", "мест")}.`
+                  : "Свободных мест нет."}
+              </p>
 
               <button
                 type="button"

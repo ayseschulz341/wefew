@@ -4,9 +4,11 @@ import type { PlayerState } from "../game/types";
 import { CHAMBERS } from "../game/types";
 import { CHARACTER_BY_ID } from "../game/characters";
 import { Avatar } from "./Avatar";
+import { isYou } from "../game/plural";
 
 interface Props {
-  winnerName: string | null;
+  /** Место победителя; null — победителя нет. */
+  winnerSeat: number | null;
   humanWon: boolean;
   players: PlayerState[];
   playerName: string;
@@ -16,7 +18,7 @@ interface Props {
 }
 
 export function ResultScreen({
-  winnerName,
+  winnerSeat,
   humanWon,
   players,
   playerName,
@@ -25,9 +27,13 @@ export function ResultScreen({
   onExit,
 }: Props) {
   const first = useRef<HTMLButtonElement>(null);
-  const winner = winnerName
-    ? players.find((player) => player.name === winnerName) ?? null
-    : null;
+  // Победитель ищется по месту: по имени при совпадающих именах находился
+  // не тот игрок (чужой портрет и титул).
+  const winner =
+    winnerSeat !== null ? players.find((player) => player.seat === winnerSeat) ?? null : null;
+  const winnerName = winner?.name ?? null;
+  const restartLabel =
+    playerName.trim() && !isYou(playerName) ? `Сыграть ещё раз, ${playerName.trim()}` : "Сыграть ещё раз";
   const winnerCharacter = winner?.characterId
     ? CHARACTER_BY_ID.get(winner.characterId) ?? null
     : null;
@@ -140,7 +146,7 @@ export function ResultScreen({
               className="btn btn--primary btn--big"
               onClick={onRestart}
             >
-              Сыграть ещё раз, {playerName}
+              {restartLabel}
             </button>
           )}
           <button ref={onRestart ? undefined : first} type="button" className="btn" onClick={onExit}>

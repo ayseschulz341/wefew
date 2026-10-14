@@ -90,7 +90,25 @@ describe("Вероятностная модель", () => {
   it("доказанная ложь: заявка превышает число существующих диких карт", () => {
     const s = makeGame();
     s.tableRank = "A";
-    // У бота 4 туза на руках → вне его руки максимум 8 − 4 = 4 диких.
+    // У бота 5 тузов и джокер → вне его руки максимум 8 − 6 = 2 диких.
+    s.players[3].hand = [
+      { id: "b1", rank: "A" },
+      { id: "b2", rank: "A" },
+      { id: "b3", rank: "A" },
+      { id: "b4", rank: "A" },
+      { id: "b5", rank: "A" },
+      { id: "b6", rank: "JKR" },
+    ];
+    pileFrom(s, [3], "A"); // верхняя заявка 3 > 2
+    s.currentSeat = 3;
+    expect(suspicionOfTop(s, 3)).toBe(1);
+  });
+
+  it("перебор вместе с нижними заявками — сильное подозрение, но не доказательство", () => {
+    const s = makeGame();
+    s.tableRank = "A";
+    // Вне руки бота 4 диких, заявлено 2 + 3: кто-то соврал, но, возможно,
+    // не автор верхней выкладки — вскрывается только она.
     s.players[3].hand = [
       { id: "b1", rank: "A" },
       { id: "b2", rank: "A" },
@@ -98,9 +116,11 @@ describe("Вероятностная модель", () => {
       { id: "b4", rank: "A" },
       { id: "b5", rank: "K" },
     ];
-    pileFrom(s, [2, 3], "A"); // остальные заявили 5 > 4
+    pileFrom(s, [2, 3], "A");
     s.currentSeat = 3;
-    expect(suspicionOfTop(s, 3)).toBe(1);
+    const suspicion = suspicionOfTop(s, 3);
+    expect(suspicion).toBeGreaterThan(0.9);
+    expect(suspicion).toBeLessThan(1);
   });
 
   it("модель не видит чужие ранги: знание строится только из своей руки", () => {
@@ -119,7 +139,7 @@ describe("Вероятностная модель", () => {
 });
 
 describe("Решения бота", () => {
-  it("доказанная ложь — обвинение почти наверняка", () => {
+  it("явный перебор заявок — обвинение почти наверняка", () => {
     const s = makeGame();
     s.tableRank = "A";
     s.players[3].hand = [

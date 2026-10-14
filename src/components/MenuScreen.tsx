@@ -5,7 +5,7 @@ import { DIFFICULTY_LABELS, VARIANT_LABELS } from "../game/types";
 import { CHARACTERS } from "../game/characters";
 import type { Settings, Stats } from "../game/storage";
 import { Avatar } from "./Avatar";
-import { normalizeRoomCode } from "../network/roomLinks";
+import { extractRoomCode } from "../network/roomLinks";
 
 interface Props {
   settings: Settings;
@@ -327,12 +327,11 @@ export function MenuScreen({
               </div>
               <input
                 value={roomCode}
-                maxLength={6}
                 inputMode="text"
                 autoComplete="off"
                 placeholder="ABC234"
                 aria-label="Код комнаты"
-                onChange={(event) => setRoomCode(normalizeRoomCode(event.target.value))}
+                onChange={(event) => setRoomCode(extractRoomCode(event.target.value))}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && roomCode.length === 6 && !onlineBusy) {
                     onJoinRoom(roomCode, settings);

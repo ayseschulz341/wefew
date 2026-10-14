@@ -98,4 +98,24 @@ describe("персональное сетевое состояние", () => {
     expect(pending.phase).toMatchObject({ kind: "roulette", fired: false, resultPending: true });
     expect(revealed.phase).toMatchObject({ kind: "roulette", fired: true, resultPending: false });
   });
+
+  it("не выдаёт чужие блефы счётчиком до конца партии", () => {
+    setRng(() => 0.42);
+    const full = startNetworkGame(
+      [
+        { name: "1", characterId: "scubby" },
+        { name: "2", characterId: "foxy" },
+      ],
+      { difficulty: "normal", variant: "classic", firstSeat: 0 },
+    );
+    full.players[0].bluffsMade = 2;
+    full.players[1].bluffsMade = 1;
+
+    const view = personalState(full, 0);
+    expect(view.players[0].bluffsMade).toBe(2);
+    expect(view.players[1].bluffsMade).toBe(0);
+
+    full.phase = { kind: "gameover", winner: 0 };
+    expect(personalState(full, 0).players[1].bluffsMade).toBe(1);
+  });
 });

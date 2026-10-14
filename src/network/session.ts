@@ -10,15 +10,18 @@ const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export function loadRoomSession(roomCode: string): StoredRoomSession | null {
   try {
-    const value = JSON.parse(localStorage.getItem(KEY) ?? "null") as StoredRoomSession | null;
+    const value = JSON.parse(localStorage.getItem(KEY) ?? "null") as Partial<StoredRoomSession> | null;
     if (
       !value ||
       value.roomCode !== roomCode ||
-      Date.now() - value.savedAt > MAX_AGE_MS
+      typeof value.playerId !== "string" ||
+      typeof value.sessionId !== "string" ||
+      typeof value.savedAt !== "number" ||
+      !(Date.now() - value.savedAt <= MAX_AGE_MS)
     ) {
       return null;
     }
-    return value;
+    return value as StoredRoomSession;
   } catch {
     return null;
   }
@@ -41,6 +44,12 @@ export function clearRoomSession(roomCode?: string): void {
     const current = JSON.parse(localStorage.getItem(KEY) ?? "null") as StoredRoomSession | null;
     if (current?.roomCode === roomCode) localStorage.removeItem(KEY);
   } catch {
-    localStorage.removeItem(KEY);
+    // Повреждённая запись удаляется; заблокированное хранилище бросает и здесь,
+    // а выход из комнаты не должен из-за этого обрываться.
+    try {
+      localStorage.removeItem(KEY);
+    } catch {
+      /* хранилище недоступно */
+    }
   }
 }

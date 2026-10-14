@@ -21,10 +21,12 @@ interface Props {
 export function LogPanel({ state, open = false }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
+  // logSeq, а не длина: журнал обрезается до 140 записей, и после этого его
+  // длина перестаёт меняться — автопрокрутка замирала.
   useEffect(() => {
     const el = ref.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [state.log.length]);
+  }, [state.logSeq]);
 
   return (
     <aside className={`log ${open ? "is-open" : ""}`} aria-label="Журнал игры">

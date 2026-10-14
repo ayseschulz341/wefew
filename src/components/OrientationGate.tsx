@@ -2,9 +2,11 @@ import { motion } from "framer-motion";
 
 interface Props {
   resumed?: boolean;
+  /** Онлайн-партия на поворот не останавливается — текст не должен обещать паузу. */
+  online?: boolean;
 }
 
-export function OrientationGate({ resumed = false }: Props) {
+export function OrientationGate({ resumed = false, online = false }: Props) {
   return (
     <motion.div
       className="orientation-gate"
@@ -46,7 +48,9 @@ export function OrientationGate({ resumed = false }: Props) {
       </h1>
       <p id="orientation-description">
         {resumed
-          ? "Партия поставлена на паузу. Она продолжится автоматически после поворота."
+          ? online
+            ? "Онлайн-партия идёт дальше, а таймер хода не ждёт — поверните телефон, чтобы не пропустить ход."
+            : "Партия поставлена на паузу. Она продолжится автоматически после поворота."
           : "Игра начнётся автоматически, когда стол поместится на экране."}
       </p>
       <div className="orientation-gate__status" aria-hidden="true">
