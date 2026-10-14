@@ -222,6 +222,11 @@ export class SoundEngine {
     const audio = new Audio(url);
     audio.preload = "auto";
     audio.volume = 0.82;
+    // Сбой загрузки не должен навсегда заглушить реплику: следующий вызов
+    // создаст элемент заново.
+    audio.onerror = () => {
+      if (this.voiceCache.get(path) === audio) this.voiceCache.delete(path);
+    };
     this.voiceCache.set(path, audio);
     return audio;
   }
