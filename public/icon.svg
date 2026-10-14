@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="36" fill="#141014"/>
+  <circle cx="96" cy="96" r="72" fill="#1e171b"/>
+  <circle cx="96" cy="96" r="72" fill="none" stroke="#c9a24b" stroke-width="4" opacity="0.7"/>
+  <!-- Барабан револьвера -->
+  <circle cx="96" cy="96" r="46" fill="#2c242a" stroke="#111" stroke-width="5"/>
+  <g fill="#15121a">
+    <circle cx="96" cy="66" r="11"/>
+    <circle cx="122" cy="81" r="11"/>
+    <circle cx="122" cy="111" r="11"/>
+    <circle cx="96" cy="126" r="11"/>
+    <circle cx="70" cy="111" r="11"/>
+  </g>
+  <!-- Боевой патрон -->
+  <circle cx="70" cy="81" r="12" fill="#c22736" stroke="#8c1f28" stroke-width="3"/>
+  <circle cx="66.5" cy="77.5" r="3.5" fill="#f08a94"/>
+</svg>

@@ -1,0 +1,47 @@
+{
+  "name": "liars-bar-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Бар лжецов — веб-версия карточного режима Liar's Deck против ИИ-ботов",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:client": "vite",
+    "dev:server": "tsx server/index.ts",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "tsc --noEmit && vite build",
+    "build:server": "tsc -p tsconfig.server.json && node scripts/write-server-package.mjs",
+    "start": "node server-dist/server/index.js",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:deploy": "npm run build && node scripts/railway-smoke.mjs",
+    "test:online": "npm run build:server && node scripts/online-smoke.mjs",
+    "test:stress": "vite-node scripts/debug-stress.ts",
+    "test:visual": "node scripts/screenshots.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@fontsource/russo-one": "^5.1.0",
+    "framer-motion": "^11.11.9",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "playwright": "^1.62.1",
+    "tsx": "^4.23.12",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
+}

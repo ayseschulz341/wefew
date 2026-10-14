@@ -1,0 +1,20 @@
+{
+  "name": "Бар лжецов — Liar's Deck",
+  "short_name": "Бар лжецов",
+  "description": "Карточная игра в блеф: кладите карты, обвиняйте во лжи и выживайте в русской рулетке.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0d0a0c",
+  "theme_color": "#0d0a0c",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
