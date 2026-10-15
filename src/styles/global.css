@@ -3751,6 +3751,22 @@ button {
 .scene__me { position: relative; }
 .scene__me .seat__taunt { bottom: calc(100% + 4px); }
 
+/* Верхний ряд прижат к краю сцены с overflow: hidden, и реплика над местом
+   обрезалась. На обычной раскладке показываем её под местом. */
+@media (min-height: 561px), (min-width: 1101px) {
+  .scene__seats--top .seat__taunt {
+    top: calc(100% + 8px);
+    bottom: auto;
+  }
+
+  .scene__seats--top .seat__taunt::after {
+    top: auto;
+    bottom: 100%;
+    border-top-color: transparent;
+    border-bottom-color: var(--gold-dim);
+  }
+}
+
 /* --- Метка последней выкладки на аватаре --- */
 .seat__lastplay {
   position: absolute;
