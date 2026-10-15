@@ -201,6 +201,20 @@ export class SoundEngine {
     return this.ctx;
   }
 
+  /**
+   * Можно ли звучать прямо сейчас. На приостановленном контексте (гость пришёл
+   * по ссылке и ещё ничего не нажал) звуки копились и потом гремели разом.
+   */
+  private canPlayNow(ctx: AudioContext): boolean {
+    if (ctx.state === "running") return true;
+    // Внутри жеста пользователя resume() уже запрошен и сработает сразу.
+    const activation =
+      typeof navigator === "undefined"
+        ? undefined
+        : (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
+    return activation?.isActive === true;
+  }
+
   setMuted(muted: boolean): void {
     this.muted = muted;
     if (this.master) this.master.gain.value = muted ? 0 : MASTER_VOLUME;
@@ -332,7 +346,7 @@ export class SoundEngine {
   /** Синтезированные эффекты на WebAudio. */
   private playSynth(name: SfxName): void {
     const ctx = this.ensure();
-    if (!ctx || !this.master) return;
+    if (!ctx || !this.master || !this.canPlayNow(ctx)) return;
     const t = ctx.currentTime;
 
     switch (name) {
@@ -416,6 +430,12 @@ export class SoundEngine {
     const ctx = this.ensure();
     if (!ctx || !this.master) return null;
     return { ctx, out: this.master };
+  }
+
+  /** Шина для звука прямо сейчас; null, если контекст спит и звук бы накопился. */
+  liveFxBus(): { ctx: AudioContext; out: AudioNode } | null {
+    const bus = this.fxBus();
+    return bus && this.canPlayNow(bus.ctx) ? bus : null;
   }
 }
 

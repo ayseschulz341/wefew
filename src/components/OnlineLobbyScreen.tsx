@@ -89,6 +89,7 @@ export function OnlineLobbyScreen({ room, inviteUrl, onExit }: Props) {
 
   const canStart =
     room.isHost &&
+    !room.gameInProgress &&
     room.players.filter((player) => player.connected).length >= 2 &&
     room.connectionStatus === "connected";
 
@@ -274,7 +275,9 @@ export function OnlineLobbyScreen({ room, inviteUrl, onExit }: Props) {
 
         <footer className="online-lobby__footer">
           <p>
-            {room.isHost
+            {room.gameInProgress
+              ? "Партия уже идёт без вас — вы сядете за стол в следующей."
+              : room.isHost
               ? canStart
                 ? "Все готовы. Начинайте, когда захотите."
                 : "Пригласите хотя бы одного друга."

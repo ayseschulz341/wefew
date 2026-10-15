@@ -99,6 +99,15 @@ async function textWithin(page, needle, timeoutMs) {
   return false;
 }
 
+/** Можно ли сейчас действовать на этой странице: карты или «Обвинить» активны. */
+const isActionable = (page) =>
+  page.evaluate(
+    () =>
+      !document.querySelector(".overlay--reveal, .overlay--roulette") &&
+      (document.querySelector(".hand__slot .playing-card.is-clickable") !== null ||
+        document.querySelector(".hand__buttons .btn--danger:not(:disabled)") !== null),
+  );
+
 /** Кладёт первую легальную карту через UI; true — ход сделан. */
 async function playAnyCardUI(page) {
   // Только интерактивные карты: уходящие с анимацией карты ещё в DOM, но неактивны.
@@ -106,7 +115,12 @@ async function playAnyCardUI(page) {
   const count = await slots.count();
   const btn = page.getByRole("button", { name: /^Положить/ });
   for (let i = 0; i < count; i += 1) {
-    await slots.nth(i).click();
+    try {
+      await slots.nth(i).click({ timeout: 5000 });
+    } catch {
+      // Ход сменился, пока карта анимировалась, — решит следующий опрос.
+      return false;
+    }
     await page.waitForTimeout(200);
     if (!(await btn.isDisabled())) {
       await btn.click();
@@ -255,22 +269,33 @@ try {
       for (const player of players) {
         // Текст «Ваш ход» живёт ещё и в уходящей с анимацией строке статуса,
         // поэтому ход определяем по реально доступным действиям.
-        const ready = await player.page.evaluate(
-          () =>
-            !document.querySelector(".overlay--reveal, .overlay--roulette") &&
-            (document.querySelector(".hand__slot .playing-card.is-clickable") !== null ||
-              document.querySelector(".hand__buttons .btn--danger:not(:disabled)") !== null),
-        );
-        if (ready) {
+        if (await isActionable(player.page)) {
           active = player;
           break;
         }
       }
       if (active) {
         const danger = active.page.locator(".btn--danger");
+        let acted = false;
         if (!(await danger.isDisabled())) {
           await danger.click();
-        } else if (!(await playAnyCardUI(active.page))) {
+          acted = true;
+        } else {
+          acted = await playAnyCardUI(active.page);
+        }
+        if (acted) {
+          // Ждём, пока страница отразит ход: иначе следующий опрос увидит
+          // ещё не обновлённый стол и попробует сходить повторно.
+          await active.page
+            .waitForFunction(
+              () =>
+                document.querySelector(".hand__slot .playing-card.is-clickable") === null &&
+                document.querySelector(".hand__buttons .btn--danger:not(:disabled)") === null,
+              null,
+              { timeout: 10000 },
+            )
+            .catch(() => {});
+        } else if (await isActionable(active.page)) {
           note(`${active.name}: ни обвинение, ни выкладка недоступны в свой ход`);
           await shot(active, "no-moves");
         }

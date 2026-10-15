@@ -8,6 +8,7 @@
  * Запуск: node scripts/online-fullgame.mjs  (перед этим: npm run build)
  */
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 import WebSocket from "ws";
 
@@ -18,7 +19,9 @@ let serverOutput = "";
 
 const server = spawn(process.execPath, ["server-dist/server/index.js"], {
   cwd: new URL("..", import.meta.url),
-  env: { ...process.env, PORT: String(port), HEARTBEAT_INTERVAL_MS: "250" },
+  // Пульс проверяет online-smoke. Здесь при 250 мс любая пауза процесса под
+  // нагрузкой дольше ~0,5 с обрывала соединение, и партия «зависала».
+  env: { ...process.env, PORT: String(port), HEARTBEAT_INTERVAL_MS: "5000" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 server.stdout.on("data", (chunk) => { serverOutput += String(chunk); });
@@ -99,8 +102,13 @@ let actionSeq = 0;
 const actionId = () => `fg-${(actionSeq += 1)}`;
 
 // Тайминги сцены — зеркальные формулы из src/game/roulettePresentation.ts.
-const hitOffsetMs = (pull) => 2530 + (pull - 1) * 380 + 6180;
-const totalMs = (pull) => hitOffsetMs(pull) + 2600;
+// Те же функции, что использует сервер: захардкоженные числа устарели после
+// изменения паузы перед спуском.
+const { rouletteHitOffsetMs, rouletteTotalMs } = createRequire(import.meta.url)(
+  "../server-dist/src/game/roulettePresentation.js",
+);
+const hitOffsetMs = (pull) => rouletteHitOffsetMs(pull);
+const totalMs = (pull) => rouletteTotalMs(pull);
 
 /**
  * Ведёт один спуск рулетки по событиям одного клиента: приватность исхода
@@ -158,11 +166,11 @@ async function observeRoulette(client, t0, scene, pull, index) {
     const hit = hitOffsetMs(seg.pull);
     const total = totalMs(seg.pull);
     assert(
-      seg.revealedAt - seg.startedAt >= hit - 1500 && seg.revealedAt - seg.startedAt <= hit + 3000,
+      seg.revealedAt - seg.startedAt >= hit - 300 && seg.revealedAt - seg.startedAt <= hit + 3000,
       `Спуск ${seg.index} (pull ${seg.pull}): раскрытие через ${seg.revealedAt - seg.startedAt} мс от старта сегмента, ожидалось ~${hit}`,
     );
     assert(
-      seg.endedAt - seg.startedAt >= total - 1500 && seg.endedAt - seg.startedAt <= total + 4000,
+      seg.endedAt - seg.startedAt >= total - 300 && seg.endedAt - seg.startedAt <= total + 4000,
       `Спуск ${seg.index} (pull ${seg.pull}): сегмент длился ${seg.endedAt - seg.startedAt} мс, ожидалось ~${total}`,
     );
   }

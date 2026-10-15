@@ -160,4 +160,38 @@ describe("безопасность сетевой комнаты", () => {
       "Опоздавший",
     ]);
   });
+
+  it("когда за столом никого нет, сервер не доигрывает партию ускоренно", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000);
+    const room = new Room("ABC234", { turnSeconds: 0 });
+    const host = room.identify("Хозяин", "foxy", undefined, undefined, true);
+    const guest = room.identify("Гость", "cupcake", undefined, undefined, false);
+    room.start(host.playerId);
+
+    room.setConnected(host.playerId, false);
+    room.setConnected(guest.playerId, false);
+    expect(room.turnEndsAt).toBeNull();
+
+    // Вернулся тот, чей ход не сейчас: для отсутствующего игрока отсчёт
+    // 15 секунд идёт от момента возвращения.
+    vi.setSystemTime(2_100_000);
+    const returning = room.game!.currentSeat === 0 ? guest : host;
+    room.identify(returning.player.name, returning.player.characterId, undefined, returning.sessionId, false);
+    expect(room.turnEndsAt).toBe(2_100_000 + AWAY_TURN_MS);
+  });
+
+  it("права хоста во время партии получает игрок за столом, а не зритель лобби", () => {
+    const room = new Room("ABC234");
+    const host = room.identify("Хозяин", "foxy", undefined, undefined, true);
+    const ghost = room.identify("Призрак", "toar", undefined, undefined, false);
+    const guest = room.identify("Гость", "cupcake", undefined, undefined, false);
+    room.setConnected(ghost.playerId, false);
+    room.start(host.playerId);
+    room.identify("Призрак", "toar", undefined, ghost.sessionId, false);
+
+    room.leave(host.playerId);
+
+    expect(room.ownerId).toBe(guest.playerId);
+  });
 });

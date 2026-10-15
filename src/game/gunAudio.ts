@@ -76,7 +76,7 @@ export class GunAudio {
   }
 
   private startSample(buffer: AudioBuffer, gain: number, offsetSec = 0): void {
-    const bus = sfx.fxBus();
+    const bus = sfx.liveFxBus();
     if (!bus) return;
     const src = bus.ctx.createBufferSource();
     src.buffer = buffer;
@@ -105,7 +105,7 @@ export class GunAudio {
     sweepTo?: number;
     attack?: number;
   }) {
-    const bus = sfx.fxBus();
+    const bus = sfx.liveFxBus();
     if (!bus) return;
     const noise = this.ensureNoise(bus.ctx);
     if (!noise) return;
@@ -136,7 +136,7 @@ export class GunAudio {
     type: OscillatorType = "sine",
     sweepTo?: number,
   ) {
-    const bus = sfx.fxBus();
+    const bus = sfx.liveFxBus();
     if (!bus) return;
     const t0 = bus.ctx.currentTime;
     const osc = bus.ctx.createOscillator();

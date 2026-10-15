@@ -206,7 +206,10 @@ export class Room {
   }
   private ensureConnectedOwner() {
     if (this.ownerId && this.players.get(this.ownerId)?.connected) return;
-    this.ownerId = [...this.players.values()].find((player) => player.connected)?.id ?? null;
+    const connected = [...this.players.values()].filter((player) => player.connected);
+    // Во время партии права (в том числе реванш) получает тот, кто сидит за столом.
+    const seated = this.game ? connected.find((player) => this.seats.includes(player.id)) : undefined;
+    this.ownerId = (seated ?? connected[0])?.id ?? null;
     for (const player of this.players.values()) player.isHost = player.id === this.ownerId;
   }
   private forgetPlayer(playerId: string) {
@@ -234,7 +237,10 @@ export class Room {
       : null;
     const currentId = this.seats[game.currentSeat];
     const away = !currentId || !this.players.get(currentId)?.connected;
-    if (!away) {
+    // Когда за столом не осталось никого, партия не доигрывается сама ускоренно:
+    // действует только обычный таймер, а 15 секунд отсчитываются от возвращения.
+    const anyoneHere = this.seats.some((id) => this.players.get(id)?.connected);
+    if (!away || !anyoneHere) {
       this.turnEndsAt = regular;
       return;
     }

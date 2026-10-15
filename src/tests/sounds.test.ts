@@ -26,6 +26,74 @@ class FakeAudio {
 
 const NativeAudio = globalThis.Audio;
 
+class FakeParam {
+  value = 0;
+  setValueAtTime() { return this; }
+  exponentialRampToValueAtTime() { return this; }
+  linearRampToValueAtTime() { return this; }
+}
+
+class FakeNode {
+  gain = new FakeParam();
+  frequency = new FakeParam();
+  Q = new FakeParam();
+  buffer: unknown = null;
+  loop = false;
+  type = "";
+  connect(target: unknown) { return target; }
+  start = vi.fn();
+  stop = vi.fn();
+}
+
+class FakeContext {
+  static last: FakeContext | null = null;
+  state: AudioContextState = "suspended";
+  currentTime = 0;
+  sampleRate = 8000;
+  destination = new FakeNode();
+  nodes: FakeNode[] = [];
+  resume = vi.fn(() => Promise.resolve());
+  constructor() { FakeContext.last = this; }
+  private node() { const n = new FakeNode(); this.nodes.push(n); return n; }
+  createGain() { return this.node(); }
+  createBufferSource() { return this.node(); }
+  createBiquadFilter() { return this.node(); }
+  createOscillator() { return this.node(); }
+  createBuffer(_channels: number, length: number) {
+    return { getChannelData: () => new Float32Array(length), duration: length / this.sampleRate };
+  }
+}
+
+describe("эффекты на приостановленном AudioContext", () => {
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("не копит звуки, пока контекст спит, и играет после разблокировки", () => {
+    vi.stubGlobal("window", { AudioContext: FakeContext });
+    vi.stubGlobal("navigator", {});
+    const engine = new SoundEngine();
+    const started = () => FakeContext.last!.nodes.filter((n) => n.start.mock.calls.length > 0).length;
+
+    engine.play("flip");
+    engine.play("heartbeat");
+    expect(started()).toBe(0);
+
+    FakeContext.last!.state = "running";
+    engine.play("flip");
+    expect(started()).toBeGreaterThan(0);
+  });
+
+  it("внутри жеста пользователя звук разрешён сразу", () => {
+    vi.stubGlobal("window", { AudioContext: FakeContext });
+    vi.stubGlobal("navigator", { userActivation: { isActive: true } });
+    const engine = new SoundEngine();
+
+    engine.play("uiClick");
+    expect(FakeContext.last!.nodes.some((n) => n.start.mock.calls.length > 0)).toBe(true);
+  });
+});
+
 describe("голосовые реплики", () => {
   let engine: SoundEngine;
 
